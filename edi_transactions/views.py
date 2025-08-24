@@ -5,6 +5,7 @@ from django.http import JsonResponse
 from django.core.paginator import Paginator
 from django.db.models import Count, Sum
 from django.utils import timezone
+from django.http import HttpResponse
 
 from .models import (
     Company, CompanyUser, SubscriptionPlan,
@@ -239,3 +240,13 @@ def processing_error_list(request):
 def processing_log_list(request):
     logs = ProcessingLog.objects.all().order_by("-created_at")[:50]
     return render(request, "system/processing_logs.html", {"logs": logs})
+
+
+def purchase_order_create(request):
+    return HttpResponse("Purchase order create view (to be implemented).")
+
+def purchase_order_edit(request, order_id):
+    return HttpResponse(f"Edit purchase order {order_id} (to be implemented).")
+
+def purchase_order_delete(request, order_id):
+    return HttpResponse(f"Delete purchase order {order_id} (to be implemented).")
