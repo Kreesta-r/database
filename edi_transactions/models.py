@@ -1,7 +1,7 @@
 from django.db import models
 import uuid
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.utils import timezone
+from django.utils import timezone as django_timezone
 from django.contrib.auth.models import User
 
 
@@ -23,7 +23,7 @@ class SubscriptionPlan(models.Model):
     max_transactions_monthly = models.IntegerField()
     features = models.JSONField()  # Store plan features as JSON
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -78,11 +78,11 @@ class Company(models.Model):
     
     # Compliance & Settings
     compliance_standards = models.JSONField(default=list)  # ['PEPPOL', 'GS1', etc.]
-    timezone = models.CharField(max_length=50, default='Africa/Lagos')
+    company_timezone = models.CharField(max_length=50, default='Africa/Lagos')
     currency = models.CharField(max_length=3, default='NGN')
     
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -113,7 +113,7 @@ class CompanyUser(models.Model):
     permissions = models.JSONField(blank=True, null=True)  # Role-based permissions
     phone = models.CharField(max_length=50, blank=True, null=True)
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -150,7 +150,7 @@ class DocumentType(models.Model):
     format_standard = models.CharField(max_length=20, choices=FORMAT_CHOICES, default='X12')
     direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, default='BOTH')
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -219,7 +219,7 @@ class TradingPartner(models.Model):
     performance_metrics = models.JSONField(blank=True, null=True)
     
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -281,7 +281,7 @@ class Interchange(models.Model):
     file_size_bytes = models.IntegerField(blank=True, null=True)
     raw_content = models.TextField(blank=True, null=True)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     processed_at = models.DateTimeField(blank=True, null=True)
     
     def __str__(self):
@@ -306,7 +306,7 @@ class FunctionalGroup(models.Model):
     group_date = models.DateField()
     group_time = models.TimeField()
     transaction_count = models.IntegerField(default=0)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"GCN: {self.group_control_number}"
@@ -397,7 +397,7 @@ class EDITransaction(models.Model):
     line_item_count = models.IntegerField(blank=True, null=True)
     
     # Processing Timestamps
-    received_at = models.DateTimeField(default=timezone.now)
+    received_at = models.DateTimeField(default=django_timezone.now)
     processed_at = models.DateTimeField(blank=True, null=True)
     completed_at = models.DateTimeField(blank=True, null=True)
     
@@ -405,7 +405,7 @@ class EDITransaction(models.Model):
     metadata = models.JSONField(blank=True, null=True)
     tags = models.JSONField(default=list)  # For categorization
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -447,7 +447,7 @@ class EDILineItem(models.Model):
     # Additional Details
     line_item_data = models.JSONField(blank=True, null=True)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.transaction} - Line: {self.line_number}"
@@ -518,7 +518,7 @@ class PurchaseOrder(models.Model):
     payment_terms = models.CharField(max_length=50, blank=True, null=True)
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -566,9 +566,9 @@ class SCBNIntegrationLog(models.Model):
     files_processed = models.IntegerField(default=0)
     files_failed = models.IntegerField(default=0)
     
-    started_at = models.DateTimeField(default=timezone.now)
+    started_at = models.DateTimeField(default=django_timezone.now)
     completed_at = models.DateTimeField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.company.name} - {self.operation_type} - {self.operation_status}"
@@ -610,7 +610,7 @@ class MonthlyTransactionSummary(models.Model):
     success_rate = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
     error_count = models.IntegerField(default=0)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -654,7 +654,7 @@ class DailyAnalytics(models.Model):
     active_partners_count = models.IntegerField(default=0)
     new_partners_count = models.IntegerField(default=0)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.company.name} - {self.analytics_date}"
@@ -693,7 +693,7 @@ class ProcessingError(models.Model):
     error_location = models.CharField(max_length=100, blank=True, null=True)  # Which segment/element
     severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"Error: {self.error_code} - {self.severity}"
@@ -728,7 +728,7 @@ class ProcessingLog(models.Model):
     process_message = models.TextField(blank=True, null=True)
     processing_duration = models.DurationField(blank=True, null=True)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"Log: {self.process_step} - {self.process_status}"
@@ -795,7 +795,7 @@ class Invoice(models.Model):
     due_date = models.DateField(blank=True, null=True)
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -864,7 +864,7 @@ class Payment(models.Model):
     check_number = models.CharField(max_length=20, blank=True, null=True)
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -893,7 +893,7 @@ class PaymentDetail(models.Model):
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     adjustment_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"Payment: {self.payment.payment_number} - Invoice: {self.invoice_number}"
@@ -941,7 +941,7 @@ class DocumentWorkflow(models.Model):
     is_automated = models.BooleanField(default=False)
     automation_rules = models.JSONField(blank=True, null=True)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
@@ -1000,7 +1000,7 @@ class APIUsageLog(models.Model):
     # Rate Limiting
     rate_limit_remaining = models.IntegerField(blank=True, null=True)
     
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.method} {self.endpoint} - {self.status_code}"
@@ -1039,8 +1039,8 @@ class SLAMonitoring(models.Model):
     alert_sent = models.BooleanField(default=False)
     alert_sent_at = models.DateTimeField(blank=True, null=True)
     
-    measured_at = models.DateTimeField(default=timezone.now)
-    created_at = models.DateTimeField(default=timezone.now)
+    measured_at = models.DateTimeField(default=django_timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     
     def __str__(self):
         return f"{self.company.name} - {self.metric_name}: {self.actual_value}"
@@ -1108,7 +1108,7 @@ class CustomReport(models.Model):
     recipients = models.JSONField(default=list)  # Email addresses for automated reports
     
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
