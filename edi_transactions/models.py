@@ -2,8 +2,122 @@ from django.db import models
 import uuid
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-# Create your models here.
+from django.contrib.auth.models import User
 
+
+# =============================================
+# CORE TENANT & SUBSCRIPTION MANAGEMENT
+# =============================================
+
+class SubscriptionPlan(models.Model):
+    """Subscription Plans (Basic, Growth, Enterprise)"""
+    
+    class Meta:
+        db_table = 'subscription_plans'
+        
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=50, unique=True)  # 'basic', 'growth', 'enterprise'
+    display_name = models.CharField(max_length=100)
+    price_ngn = models.DecimalField(max_digits=10, decimal_places=2)
+    max_users = models.IntegerField()
+    max_transactions_monthly = models.IntegerField()
+    features = models.JSONField()  # Store plan features as JSON
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.display_name
+
+
+class Company(models.Model):
+    """Companies (Main Tenant Entity)"""
+    
+    COMPANY_SIZE_CHOICES = [
+        ('SMALL', 'Small (1-50 employees)'),
+        ('MEDIUM', 'Medium (51-250 employees)'),
+        ('LARGE', 'Large (251-1000 employees)'),
+        ('ENTERPRISE', 'Enterprise (1000+ employees)'),
+    ]
+    
+    SUBSCRIPTION_STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('SUSPENDED', 'Suspended'),
+        ('CANCELLED', 'Cancelled'),
+        ('TRIAL', 'Trial'),
+    ]
+    
+    class Meta:
+        db_table = 'companies'
+        verbose_name_plural = 'companies'
+        indexes = [
+            models.Index(fields=['subscription_plan'], name='idx_comp_sub_plan'),
+            models.Index(fields=['scbn_mailbox_id'], name='idx_comp_scbn_id'),
+        ]
+        
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255)
+    registration_number = models.CharField(max_length=100, blank=True, null=True)
+    tax_id = models.CharField(max_length=100, blank=True, null=True)
+    address = models.JSONField(blank=True, null=True)  # Complete address as JSON
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    email = models.EmailField()
+    website = models.URLField(blank=True, null=True)
+    industry = models.CharField(max_length=100, blank=True, null=True)
+    company_size = models.CharField(max_length=20, choices=COMPANY_SIZE_CHOICES, blank=True, null=True)
+    
+    # Subscription Info
+    subscription_plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT)
+    subscription_status = models.CharField(max_length=20, choices=SUBSCRIPTION_STATUS_CHOICES, default='ACTIVE')
+    subscription_start_date = models.DateField(blank=True, null=True)
+    subscription_end_date = models.DateField(blank=True, null=True)
+    
+    # SCBN Integration
+    scbn_mailbox_id = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    scbn_credentials = models.JSONField(blank=True, null=True)  # Encrypted credentials
+    
+    # Compliance & Settings
+    compliance_standards = models.JSONField(default=list)  # ['PEPPOL', 'GS1', etc.]
+    timezone = models.CharField(max_length=50, default='Africa/Lagos')
+    currency = models.CharField(max_length=3, default='NGN')
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.name
+
+
+class CompanyUser(models.Model):
+    """Extended User Profile for Multi-tenant"""
+    
+    ROLE_CHOICES = [
+        ('ADMIN', 'Administrator'),
+        ('MANAGER', 'Manager'),
+        ('USER', 'User'),
+        ('VIEWER', 'Viewer'),
+    ]
+    
+    class Meta:
+        db_table = 'company_users'
+        indexes = [
+            models.Index(fields=['company'], name='idx_user_company'),
+            models.Index(fields=['user'], name='idx_user_ref'),
+        ]
+    
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    permissions = models.JSONField(blank=True, null=True)  # Role-based permissions
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.user.get_full_name()} - {self.company.name}"
 
 
 # =============================================
@@ -13,58 +127,103 @@ from django.utils import timezone
 class DocumentType(models.Model):
     """EDI Document Types (850, 810, 820, etc.)"""
     
+    DIRECTION_CHOICES = [
+        ('INBOUND', 'Inbound'),
+        ('OUTBOUND', 'Outbound'),
+        ('BOTH', 'Both'),
+    ]
+    
+    FORMAT_CHOICES = [
+        ('X12', 'ANSI X12'),
+        ('EDIFACT', 'UN/EDIFACT'),
+        ('XML', 'XML'),
+        ('JSON', 'JSON'),
+    ]
+    
     class Meta:
-        db_table = 'edi_core_document_types'
+        db_table = 'edi_document_types'
         
-    document_type_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    transaction_set_code = models.CharField(max_length=10, unique=True)
-    document_name = models.CharField(max_length=100)
-    document_description = models.TextField(blank=True, null=True)
-    is_inbound = models.BooleanField(default=True)
-    is_outbound = models.BooleanField(default=True)
+    id = models.AutoField(primary_key=True)
+    code = models.CharField(max_length=10, unique=True)  # '850', '810', etc.
+    name = models.CharField(max_length=100)  # 'Purchase Order', 'Invoice'
+    description = models.TextField(blank=True, null=True)
+    format_standard = models.CharField(max_length=20, choices=FORMAT_CHOICES, default='X12')
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, default='BOTH')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     
     def __str__(self):
-        return f"{self.transaction_set_code} - {self.document_name}"
+        return f"{self.code} - {self.name}"
 
 
 class TradingPartner(models.Model):
     """Trading Partners (Buyers, Sellers, etc.)"""
     
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('ACTIVE', 'Active'),
+        ('SUSPENDED', 'Suspended'),
+        ('INACTIVE', 'Inactive'),
+    ]
+    
+    PROTOCOL_CHOICES = [
+        ('VAN', 'VAN (Value Added Network)'),
+        ('AS2', 'AS2'),
+        ('HTTPS', 'HTTPS'),
+        ('SFTP', 'SFTP'),
+        ('SCBN', 'Sterling Commerce Business Network'),
+    ]
+    
     class Meta:
-        db_table = 'edi_core_trading_partners'
+        db_table = 'trading_partners'
         indexes = [
-            models.Index(fields=['partner_code'], name='idx_trading_partners_code'),
-            models.Index(fields=['edi_id'], name='idx_trading_partners_edi_id'),
+            models.Index(fields=['company'], name='idx_partner_comp'),
+            models.Index(fields=['partner_code'], name='idx_partner_code'),
+            models.Index(fields=['edi_id'], name='idx_partner_edi'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'partner_code'], 
+                name='unique_company_partner_code'
+            ),
         ]
         
-    partner_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    partner_code = models.CharField(max_length=20, unique=True)
-    company_name = models.CharField(max_length=200)
-    edi_id = models.CharField(max_length=50, unique=True)
-    qualifier = models.CharField(max_length=10)  # 01=DUNS, 12=Phone, etc.
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    
+    # Basic Information
+    name = models.CharField(max_length=255)
+    partner_code = models.CharField(max_length=50)  # Internal reference
+    edi_id = models.CharField(max_length=50)  # EDI partner ID (ISA qualifier)
+    edi_qualifier = models.CharField(max_length=10)  # '01', '14', '16', etc.
     
     # Contact Information
     contact_name = models.CharField(max_length=100, blank=True, null=True)
-    email = models.EmailField(blank=True, null=True)
-    phone = models.CharField(max_length=20, blank=True, null=True)
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_phone = models.CharField(max_length=50, blank=True, null=True)
     
     # Address
-    address_line1 = models.CharField(max_length=100, blank=True, null=True)
-    address_line2 = models.CharField(max_length=100, blank=True, null=True)
-    city = models.CharField(max_length=50, blank=True, null=True)
-    state = models.CharField(max_length=10, blank=True, null=True)
-    postal_code = models.CharField(max_length=20, blank=True, null=True)
-    country = models.CharField(max_length=5, default='US')
+    address = models.JSONField(blank=True, null=True)
     
-    # Settings
+    # Partner Configuration
+    edi_formats_supported = models.JSONField(default=list)  # ['X12', 'EDIFACT']
+    document_types_supported = models.JSONField(default=list)  # ['850', '810']
+    communication_protocol = models.CharField(max_length=50, choices=PROTOCOL_CHOICES, default='SCBN')
+    
+    # Relationship Status
+    partnership_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    onboarding_completed = models.BooleanField(default=False)
+    
+    # SLA & Performance
+    sla_response_time_hours = models.IntegerField(blank=True, null=True)
+    performance_metrics = models.JSONField(blank=True, null=True)
+    
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
-        return f"{self.partner_code} - {self.company_name}"
+        return f"{self.partner_code} - {self.name}"
 
 
 # =============================================
@@ -88,15 +247,17 @@ class Interchange(models.Model):
     ]
     
     class Meta:
-        db_table = 'edi_transactions_interchanges'
+        db_table = 'edi_interchanges'
         indexes = [
-            models.Index(fields=['interchange_control_number'], name='idx_interchanges_control_number'),
-            models.Index(fields=['interchange_date'], name='idx_interchanges_date'),
-            models.Index(fields=['status'], name='idx_interchanges_status'),
+            models.Index(fields=['company'], name='idx_int_company'),
+            models.Index(fields=['control_number'], name='idx_int_ctrl_num'),
+            models.Index(fields=['interchange_date'], name='idx_int_date'),
+            models.Index(fields=['status'], name='idx_int_status'),
         ]
     
-    interchange_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    interchange_control_number = models.CharField(max_length=20, unique=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    control_number = models.CharField(max_length=20, unique=True)
     interchange_date = models.DateField()
     interchange_time = models.TimeField()
     
@@ -115,21 +276,29 @@ class Interchange(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RECEIVED')
     total_transactions = models.IntegerField(default=0)
     
+    # File Information
+    original_filename = models.CharField(max_length=255, blank=True, null=True)
+    file_size_bytes = models.IntegerField(blank=True, null=True)
+    raw_content = models.TextField(blank=True, null=True)
+    
     created_at = models.DateTimeField(default=timezone.now)
     processed_at = models.DateTimeField(blank=True, null=True)
     
     def __str__(self):
-        return f"ICN: {self.interchange_control_number}"
+        return f"ICN: {self.control_number}"
 
 
 class FunctionalGroup(models.Model):
     """EDI Functional Groups (GS/GE)"""
     
     class Meta:
-        db_table = 'edi_transactions_functional_groups'
+        db_table = 'edi_functional_groups'
+        indexes = [
+            models.Index(fields=['interchange'], name='idx_fg_interchange'),
+        ]
     
-    group_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE, related_name='functional_groups')
     group_control_number = models.CharField(max_length=20)
     functional_id_code = models.CharField(max_length=10)  # PO, IN, etc.
     application_senders_code = models.CharField(max_length=20)
@@ -144,11 +313,152 @@ class FunctionalGroup(models.Model):
 
 
 # =============================================
-# PURCHASE ORDER TRANSACTIONS (850)
+# MAIN EDI TRANSACTIONS TABLE
+# =============================================
+
+class EDITransaction(models.Model):
+    """Main EDI Transactions Table"""
+    
+    STATUS_CHOICES = [
+        ('RECEIVED', 'Received'),
+        ('PROCESSING', 'Processing'),
+        ('PARSED', 'Parsed'),
+        ('ERROR', 'Error'),
+        ('COMPLETED', 'Completed'),
+        ('ACKNOWLEDGED', 'Acknowledged'),
+    ]
+    
+    DIRECTION_CHOICES = [
+        ('INBOUND', 'Inbound'),
+        ('OUTBOUND', 'Outbound'),
+    ]
+    
+    PRIORITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('NORMAL', 'Normal'),
+        ('HIGH', 'High'),
+        ('URGENT', 'Urgent'),
+    ]
+    
+    VALIDATION_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('VALID', 'Valid'),
+        ('INVALID', 'Invalid'),
+        ('WARNING', 'Warning'),
+    ]
+    
+    class Meta:
+        db_table = 'edi_transactions'
+        indexes = [
+            models.Index(fields=['company'], name='idx_trans_company'),
+            models.Index(fields=['trading_partner'], name='idx_trans_partner'),
+            models.Index(fields=['document_type'], name='idx_trans_doc_type'),
+            models.Index(fields=['status'], name='idx_trans_status'),
+            models.Index(fields=['direction'], name='idx_trans_direction'),
+            models.Index(fields=['received_at'], name='idx_trans_received'),
+            models.Index(fields=['po_number'], name='idx_trans_po_num'),
+            models.Index(fields=['invoice_number'], name='idx_trans_inv_num'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    functional_group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE, blank=True, null=True)
+    trading_partner = models.ForeignKey(TradingPartner, on_delete=models.PROTECT)
+    document_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT)
+    
+    # Transaction Identifiers
+    transaction_control_number = models.CharField(max_length=50, blank=True, null=True)
+    interchange_control_number = models.CharField(max_length=50, blank=True, null=True)
+    group_control_number = models.CharField(max_length=50, blank=True, null=True)
+    po_number = models.CharField(max_length=100, blank=True, null=True)
+    invoice_number = models.CharField(max_length=100, blank=True, null=True)
+    
+    # Transaction Details
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RECEIVED')
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='NORMAL')
+    
+    # File Information
+    original_filename = models.CharField(max_length=255, blank=True, null=True)
+    file_size_bytes = models.IntegerField(blank=True, null=True)
+    file_format = models.CharField(max_length=20, blank=True, null=True)
+    raw_content = models.TextField(blank=True, null=True)
+    parsed_content = models.JSONField(blank=True, null=True)
+    
+    # AI Processing
+    openai_summary = models.TextField(blank=True, null=True)
+    openai_insights = models.JSONField(blank=True, null=True)
+    validation_status = models.CharField(max_length=20, choices=VALIDATION_STATUS_CHOICES, default='PENDING')
+    validation_errors = models.JSONField(blank=True, null=True)
+    
+    # Financial Information
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    currency = models.CharField(max_length=3, default='NGN')
+    line_item_count = models.IntegerField(blank=True, null=True)
+    
+    # Processing Timestamps
+    received_at = models.DateTimeField(default=timezone.now)
+    processed_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    
+    # Metadata
+    metadata = models.JSONField(blank=True, null=True)
+    tags = models.JSONField(default=list)  # For categorization
+    
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.document_type.code} - {self.po_number or self.invoice_number or 'N/A'}"
+
+
+class EDILineItem(models.Model):
+    """EDI Line Items (For detailed transaction breakdown)"""
+    
+    class Meta:
+        db_table = 'edi_line_items'
+        indexes = [
+            models.Index(fields=['transaction'], name='idx_line_trans'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    transaction = models.ForeignKey(EDITransaction, on_delete=models.CASCADE, related_name='line_items')
+    line_number = models.CharField(max_length=20)
+    
+    # Product Information
+    product_code = models.CharField(max_length=100, blank=True, null=True)
+    product_description = models.TextField(blank=True, null=True)
+    upc_code = models.CharField(max_length=50, blank=True, null=True)
+    manufacturer_part_number = models.CharField(max_length=100, blank=True, null=True)
+    buyer_part_number = models.CharField(max_length=100, blank=True, null=True)
+    seller_part_number = models.CharField(max_length=100, blank=True, null=True)
+    
+    # Quantity & Pricing
+    quantity = models.DecimalField(max_digits=15, decimal_places=3, blank=True, null=True)
+    unit_of_measure = models.CharField(max_length=10, default='EA')
+    unit_price = models.DecimalField(max_digits=10, decimal_places=4, blank=True, null=True)
+    extended_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    
+    # Delivery Dates
+    requested_delivery_date = models.DateField(blank=True, null=True)
+    promised_delivery_date = models.DateField(blank=True, null=True)
+    requested_ship_date = models.DateField(blank=True, null=True)
+    
+    # Additional Details
+    line_item_data = models.JSONField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"{self.transaction} - Line: {self.line_number}"
+
+
+# =============================================
+# LEGACY PURCHASE ORDER MODELS (For Compatibility)
 # =============================================
 
 class PurchaseOrder(models.Model):
-    """Purchase Order Headers (850)"""
+    """Purchase Order Headers (850) - Legacy compatibility"""
     
     STATUS_CHOICES = [
         ('PENDING', 'Pending'),
@@ -166,19 +476,20 @@ class PurchaseOrder(models.Model):
     ]
     
     class Meta:
-        db_table = 'edi_transactions_purchase_orders'
+        db_table = 'edi_purchase_orders'
         indexes = [
+            models.Index(fields=['company'], name='idx_po_company'),
             models.Index(fields=['po_number'], name='idx_po_number'),
             models.Index(fields=['po_date'], name='idx_po_date'),
             models.Index(fields=['buyer_partner'], name='idx_po_buyer'),
-            models.Index(fields=['status'], name='idx_po_status'),
         ]
     
-    po_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
-    transaction_control_number = models.CharField(max_length=20)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    edi_transaction = models.OneToOneField(EDITransaction, on_delete=models.CASCADE, blank=True, null=True)
+    functional_group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
     
-    po_number = models.CharField(max_length=50, unique=True)
+    po_number = models.CharField(max_length=50)
     po_date = models.DateField()
     po_type = models.CharField(max_length=10, choices=PO_TYPE_CHOICES, default='SA')
     
@@ -195,11 +506,7 @@ class PurchaseOrder(models.Model):
     
     # Ship To Information
     ship_to_name = models.CharField(max_length=200, blank=True, null=True)
-    ship_to_address1 = models.CharField(max_length=100, blank=True, null=True)
-    ship_to_address2 = models.CharField(max_length=100, blank=True, null=True)
-    ship_to_city = models.CharField(max_length=50, blank=True, null=True)
-    ship_to_state = models.CharField(max_length=10, blank=True, null=True)
-    ship_to_postal_code = models.CharField(max_length=20, blank=True, null=True)
+    ship_to_address = models.JSONField(blank=True, null=True)
     
     # Dates
     requested_ship_date = models.DateField(blank=True, null=True)
@@ -208,9 +515,7 @@ class PurchaseOrder(models.Model):
     # Financial
     currency_code = models.CharField(max_length=3, default='USD')
     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    
-    # Payment Terms
-    payment_terms = models.CharField(max_length=50, blank=True, null=True)  # NET30, 2/10NET30
+    payment_terms = models.CharField(max_length=50, blank=True, null=True)
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(default=timezone.now)
@@ -220,44 +525,221 @@ class PurchaseOrder(models.Model):
         return f"PO: {self.po_number}"
 
 
-class POLineItem(models.Model):
-    """Purchase Order Line Items"""
+# =============================================
+# SCBN INTEGRATION & WORKFLOW
+# =============================================
+
+class SCBNIntegrationLog(models.Model):
+    """SCBN Integration Log"""
+    
+    OPERATION_CHOICES = [
+        ('POLL', 'Poll'),
+        ('SEND', 'Send'),
+        ('RECEIVE', 'Receive'),
+        ('AUTHENTICATE', 'Authenticate'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Success'),
+        ('FAILURE', 'Failure'),
+        ('WARNING', 'Warning'),
+    ]
     
     class Meta:
-        db_table = 'edi_transactions_po_line_items'
+        db_table = 'scbn_integration_log'
+        indexes = [
+            models.Index(fields=['company'], name='idx_scbn_company'),
+            models.Index(fields=['started_at'], name='idx_scbn_started'),
+        ]
     
-    line_item_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='line_items')
-    line_number = models.CharField(max_length=20)
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
     
-    # Item Information
-    item_number = models.CharField(max_length=100, blank=True, null=True)
-    item_description = models.TextField(blank=True, null=True)
-    buyer_part_number = models.CharField(max_length=100, blank=True, null=True)
-    seller_part_number = models.CharField(max_length=100, blank=True, null=True)
+    operation_type = models.CharField(max_length=50, choices=OPERATION_CHOICES)
+    operation_status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     
-    # Quantity and Pricing
-    quantity_ordered = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_of_measure = models.CharField(max_length=10, default='EA')
-    unit_price = models.DecimalField(max_digits=10, decimal_places=4)
-    extended_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    request_data = models.JSONField(blank=True, null=True)
+    response_data = models.JSONField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+    response_time_ms = models.IntegerField(blank=True, null=True)
     
-    # Delivery
-    requested_ship_date = models.DateField(blank=True, null=True)
-    requested_delivery_date = models.DateField(blank=True, null=True)
+    files_processed = models.IntegerField(default=0)
+    files_failed = models.IntegerField(default=0)
+    
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"{self.company.name} - {self.operation_type} - {self.operation_status}"
+
+
+# =============================================
+# ANALYTICS & REPORTING
+# =============================================
+
+class MonthlyTransactionSummary(models.Model):
+    """Monthly Transaction Summary (For Performance)"""
+    
+    class Meta:
+        db_table = 'monthly_transaction_summary'
+        indexes = [
+            models.Index(fields=['company', 'year', 'month'], name='idx_monthly_comp_date'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'trading_partner', 'document_type', 'year', 'month'],
+                name='unique_monthly_summary'
+            ),
+        ]
+    
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    trading_partner = models.ForeignKey(TradingPartner, on_delete=models.CASCADE, blank=True, null=True)
+    document_type = models.ForeignKey(DocumentType, on_delete=models.CASCADE, blank=True, null=True)
+    
+    year = models.IntegerField()
+    month = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
+    
+    # Volume Metrics
+    transaction_count = models.IntegerField(default=0)
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    avg_processing_time_seconds = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    
+    # Quality Metrics
+    success_rate = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    error_count = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.company.name} - {self.year}/{self.month:02d}"
+
+
+class DailyAnalytics(models.Model):
+    """Daily Analytics (For Real-time Dashboards)"""
+    
+    class Meta:
+        db_table = 'daily_analytics'
+        indexes = [
+            models.Index(fields=['company', 'analytics_date'], name='idx_daily_comp_date'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'analytics_date'],
+                name='unique_daily_analytics'
+            ),
+        ]
+    
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    analytics_date = models.DateField()
+    
+    # Transaction Metrics
+    total_transactions = models.IntegerField(default=0)
+    inbound_transactions = models.IntegerField(default=0)
+    outbound_transactions = models.IntegerField(default=0)
+    failed_transactions = models.IntegerField(default=0)
+    
+    # Financial Metrics
+    total_transaction_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    avg_transaction_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    
+    # Performance Metrics
+    avg_processing_time_minutes = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    system_uptime_percentage = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    
+    # Partner Activity
+    active_partners_count = models.IntegerField(default=0)
+    new_partners_count = models.IntegerField(default=0)
     
     created_at = models.DateTimeField(default=timezone.now)
     
     def __str__(self):
-        return f"PO: {self.purchase_order.po_number} - Line: {self.line_number}"
+        return f"{self.company.name} - {self.analytics_date}"
 
 
 # =============================================
-# INVOICE TRANSACTIONS (810)
+# AUDIT AND ERROR HANDLING
+# =============================================
+
+class ProcessingError(models.Model):
+    """EDI Processing Errors"""
+    
+    SEVERITY_CHOICES = [
+        ('ERROR', 'Error'),
+        ('WARNING', 'Warning'),
+        ('FATAL', 'Fatal'),
+        ('INFO', 'Info'),
+    ]
+    
+    class Meta:
+        db_table = 'edi_processing_errors'
+        indexes = [
+            models.Index(fields=['company'], name='idx_err_company'),
+            models.Index(fields=['interchange'], name='idx_err_interchange'),
+            models.Index(fields=['severity'], name='idx_err_severity'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE, blank=True, null=True)
+    edi_transaction = models.ForeignKey(EDITransaction, on_delete=models.CASCADE, blank=True, null=True)
+    
+    transaction_type = models.CharField(max_length=10, blank=True, null=True)
+    error_code = models.CharField(max_length=20, blank=True, null=True)
+    error_description = models.TextField()
+    error_location = models.CharField(max_length=100, blank=True, null=True)  # Which segment/element
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
+    
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"Error: {self.error_code} - {self.severity}"
+
+
+class ProcessingLog(models.Model):
+    """EDI Processing Log"""
+    
+    STATUS_CHOICES = [
+        ('STARTED', 'Started'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('SKIPPED', 'Skipped'),
+    ]
+    
+    class Meta:
+        db_table = 'edi_processing_log'
+        indexes = [
+            models.Index(fields=['company'], name='idx_log_company'),
+            models.Index(fields=['interchange'], name='idx_log_interchange'),
+            models.Index(fields=['created_at'], name='idx_log_created'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE, blank=True, null=True)
+    edi_transaction = models.ForeignKey(EDITransaction, on_delete=models.CASCADE, blank=True, null=True)
+    
+    process_step = models.CharField(max_length=50)
+    process_status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    process_message = models.TextField(blank=True, null=True)
+    processing_duration = models.DurationField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"Log: {self.process_step} - {self.process_status}"
+
+
+# =============================================
+# INVOICE TRANSACTIONS (810) - Legacy Compatibility
 # =============================================
 
 class Invoice(models.Model):
-    """Invoice Headers (810)"""
+    """Invoice Headers (810) - Legacy compatibility"""
     
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
@@ -270,23 +752,24 @@ class Invoice(models.Model):
     ]
     
     class Meta:
-        db_table = 'edi_transactions_invoices'
+        db_table = 'edi_invoices'
         indexes = [
-            models.Index(fields=['invoice_number'], name='idx_invoice_number'),
-            models.Index(fields=['invoice_date'], name='idx_invoice_date'),
-            models.Index(fields=['po'], name='idx_invoice_po_id'),
-            models.Index(fields=['status'], name='idx_invoice_status'),
+            models.Index(fields=['company'], name='idx_inv_company'),
+            models.Index(fields=['invoice_number'], name='idx_inv_number'),
+            models.Index(fields=['invoice_date'], name='idx_inv_date'),
+            models.Index(fields=['purchase_order'], name='idx_inv_po'),
         ]
     
-    invoice_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
-    transaction_control_number = models.CharField(max_length=20)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    edi_transaction = models.OneToOneField(EDITransaction, on_delete=models.CASCADE, blank=True, null=True)
+    functional_group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
     
-    invoice_number = models.CharField(max_length=50, unique=True)
+    invoice_number = models.CharField(max_length=50)
     invoice_date = models.DateField()
     
-    # Related PO (optional for some invoices)
-    po = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, blank=True, null=True)
+    # Related PO (optional)
+    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, blank=True, null=True)
     
     seller_partner = models.ForeignKey(
         TradingPartner, 
@@ -319,42 +802,12 @@ class Invoice(models.Model):
         return f"Invoice: {self.invoice_number}"
 
 
-class InvoiceLineItem(models.Model):
-    """Invoice Line Items"""
-    
-    class Meta:
-        db_table = 'edi_transactions_invoice_line_items'
-    
-    invoice_line_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='line_items')
-    line_number = models.CharField(max_length=20)
-    
-    # Reference to PO Line Item (if applicable)
-    po_line_item = models.ForeignKey(POLineItem, on_delete=models.PROTECT, blank=True, null=True)
-    
-    # Item Information
-    item_number = models.CharField(max_length=100, blank=True, null=True)
-    item_description = models.TextField(blank=True, null=True)
-    
-    # Quantity and Pricing
-    quantity_invoiced = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_of_measure = models.CharField(max_length=10, default='EA')
-    unit_price = models.DecimalField(max_digits=10, decimal_places=4)
-    extended_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
-    created_at = models.DateTimeField(default=timezone.now)
-    
-    def __str__(self):
-        return f"Invoice: {self.invoice.invoice_number} - Line: {self.line_number}"
-
-
 # =============================================
-# PAYMENT TRANSACTIONS (820)
+# PAYMENT TRANSACTIONS (820) - Legacy Compatibility
 # =============================================
 
 class Payment(models.Model):
-    """Payment Headers (820)"""
+    """Payment Headers (820) - Legacy compatibility"""
     
     STATUS_CHOICES = [
         ('PENDING', 'Pending'),
@@ -368,19 +821,21 @@ class Payment(models.Model):
         ('ACH', 'ACH'),
         ('CHECK', 'Check'),
         ('WIRE', 'Wire'),
+        ('CARD', 'Credit/Debit Card'),
     ]
     
     class Meta:
-        db_table = 'edi_transactions_payments'
+        db_table = 'edi_payments'
         indexes = [
-            models.Index(fields=['payment_number'], name='idx_payment_number'),
-            models.Index(fields=['payment_date'], name='idx_payment_date'),
-            models.Index(fields=['status'], name='idx_payment_status'),
+            models.Index(fields=['company'], name='idx_pay_company'),
+            models.Index(fields=['payment_number'], name='idx_pay_number'),
+            models.Index(fields=['payment_date'], name='idx_pay_date'),
         ]
     
-    payment_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
-    transaction_control_number = models.CharField(max_length=20)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    edi_transaction = models.OneToOneField(EDITransaction, on_delete=models.CASCADE, blank=True, null=True)
+    functional_group = models.ForeignKey(FunctionalGroup, on_delete=models.CASCADE)
     
     payment_number = models.CharField(max_length=50)
     payment_date = models.DateField()
@@ -420,9 +875,13 @@ class PaymentDetail(models.Model):
     """Payment Details (which invoices are being paid)"""
     
     class Meta:
-        db_table = 'edi_transactions_payment_details'
+        db_table = 'edi_payment_details'
+        indexes = [
+            models.Index(fields=['payment'], name='idx_paydet_payment'),
+            models.Index(fields=['invoice'], name='idx_paydet_invoice'),
+        ]
     
-    payment_detail_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='payment_details')
     
     # Invoice being paid
@@ -441,51 +900,216 @@ class PaymentDetail(models.Model):
 
 
 # =============================================
-# AUDIT AND ERROR HANDLING
+# DOCUMENT WORKFLOW & APPROVAL SYSTEM
 # =============================================
 
-class ProcessingError(models.Model):
-    """EDI Processing Errors"""
+class DocumentWorkflow(models.Model):
+    """Document Workflow States"""
     
-    SEVERITY_CHOICES = [
-        ('ERROR', 'Error'),
-        ('WARNING', 'Warning'),
-        ('FATAL', 'Fatal'),
+    STATUS_CHOICES = [
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('CANCELLED', 'Cancelled'),
+        ('ON_HOLD', 'On Hold'),
     ]
     
     class Meta:
-        db_table = 'edi_audit_processing_errors'
+        db_table = 'document_workflows'
+        indexes = [
+            models.Index(fields=['company'], name='idx_wf_company'),
+            models.Index(fields=['edi_transaction'], name='idx_wf_transaction'),
+            models.Index(fields=['workflow_status'], name='idx_wf_status'),
+        ]
     
-    error_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE, blank=True, null=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    edi_transaction = models.ForeignKey(EDITransaction, on_delete=models.CASCADE)
     
-    transaction_type = models.CharField(max_length=10, blank=True, null=True)
-    error_code = models.CharField(max_length=20, blank=True, null=True)
-    error_description = models.TextField()
-    error_location = models.CharField(max_length=100, blank=True, null=True)  # Which segment/element
-    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES)
+    # Workflow Information
+    workflow_name = models.CharField(max_length=100)
+    current_step = models.CharField(max_length=100)
+    workflow_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='IN_PROGRESS')
+    
+    # Approval Process
+    requires_approval = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(CompanyUser, on_delete=models.PROTECT, blank=True, null=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+    approval_notes = models.TextField(blank=True, null=True)
+    
+    # Automation
+    is_automated = models.BooleanField(default=False)
+    automation_rules = models.JSONField(blank=True, null=True)
     
     created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
-        return f"Error: {self.error_code} - {self.severity}"
+        return f"{self.workflow_name} - {self.current_step}"
 
 
-class ProcessingLog(models.Model):
-    """EDI Processing Log"""
+# =============================================
+# SYSTEM CONFIGURATION & API USAGE
+# =============================================
+
+class SystemConfig(models.Model):
+    """System Configuration"""
     
     class Meta:
-        db_table = 'edi_audit_processing_log'
+        db_table = 'system_config'
     
-    log_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    interchange = models.ForeignKey(Interchange, on_delete=models.CASCADE, blank=True, null=True)
+    id = models.AutoField(primary_key=True)
+    config_key = models.CharField(max_length=100, unique=True)
+    config_value = models.JSONField()
+    description = models.TextField(blank=True, null=True)
+    is_editable = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(CompanyUser, on_delete=models.PROTECT, blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
-    process_step = models.CharField(max_length=50)
-    process_status = models.CharField(max_length=20)
-    process_message = models.TextField(blank=True, null=True)
-    processing_duration = models.DurationField(blank=True, null=True)
+    def __str__(self):
+        return self.config_key
+
+
+class APIUsageLog(models.Model):
+    """API Usage Tracking"""
+    
+    class Meta:
+        db_table = 'api_usage_log'
+        indexes = [
+            models.Index(fields=['company'], name='idx_api_company'),
+            models.Index(fields=['created_at'], name='idx_api_created'),
+            models.Index(fields=['endpoint'], name='idx_api_endpoint'),
+        ]
+    
+    id = models.AutoField(primary_key=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    user = models.ForeignKey(CompanyUser, on_delete=models.SET_NULL, blank=True, null=True)
+    
+    # API Details
+    endpoint = models.CharField(max_length=255)
+    method = models.CharField(max_length=10)
+    status_code = models.IntegerField()
+    response_time_ms = models.IntegerField(blank=True, null=True)
+    
+    # Request Information
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+    request_size_bytes = models.IntegerField(blank=True, null=True)
+    response_size_bytes = models.IntegerField(blank=True, null=True)
+    
+    # Rate Limiting
+    rate_limit_remaining = models.IntegerField(blank=True, null=True)
     
     created_at = models.DateTimeField(default=timezone.now)
     
     def __str__(self):
-        return f"Log: {self.process_step} - {self.process_status}"
+        return f"{self.method} {self.endpoint} - {self.status_code}"
+
+
+class SLAMonitoring(models.Model):
+    """SLA Monitoring (Enterprise Feature)"""
+    
+    MEASUREMENT_PERIOD_CHOICES = [
+        ('HOURLY', 'Hourly'),
+        ('DAILY', 'Daily'),
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY', 'Monthly'),
+    ]
+    
+    class Meta:
+        db_table = 'sla_monitoring'
+        indexes = [
+            models.Index(fields=['company'], name='idx_sla_company'),
+            models.Index(fields=['trading_partner'], name='idx_sla_partner'),
+            models.Index(fields=['measured_at'], name='idx_sla_measured'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    trading_partner = models.ForeignKey(TradingPartner, on_delete=models.CASCADE)
+    
+    # SLA Metrics
+    metric_name = models.CharField(max_length=100)  # 'response_time', 'uptime', 'error_rate'
+    target_value = models.DecimalField(max_digits=10, decimal_places=2)
+    actual_value = models.DecimalField(max_digits=10, decimal_places=2)
+    measurement_period = models.CharField(max_length=20, choices=MEASUREMENT_PERIOD_CHOICES)
+    
+    # Alert Configuration
+    alert_threshold = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    alert_sent = models.BooleanField(default=False)
+    alert_sent_at = models.DateTimeField(blank=True, null=True)
+    
+    measured_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"{self.company.name} - {self.metric_name}: {self.actual_value}"
+
+
+# =============================================
+# CUSTOM REPORTS (Enterprise Feature)
+# =============================================
+
+class CustomReport(models.Model):
+    """Custom Reports (Enterprise Feature)"""
+    
+    REPORT_TYPE_CHOICES = [
+        ('TRANSACTION_SUMMARY', 'Transaction Summary'),
+        ('PARTNER_PERFORMANCE', 'Partner Performance'),
+        ('FINANCIAL', 'Financial Report'),
+        ('COMPLIANCE', 'Compliance Report'),
+        ('CUSTOM', 'Custom Report'),
+    ]
+    
+    FREQUENCY_CHOICES = [
+        ('DAILY', 'Daily'),
+        ('WEEKLY', 'Weekly'),
+        ('MONTHLY', 'Monthly'),
+        ('QUARTERLY', 'Quarterly'),
+        ('YEARLY', 'Yearly'),
+    ]
+    
+    OUTPUT_FORMAT_CHOICES = [
+        ('JSON', 'JSON'),
+        ('CSV', 'CSV'),
+        ('PDF', 'PDF'),
+        ('EXCEL', 'Excel'),
+    ]
+    
+    class Meta:
+        db_table = 'custom_reports'
+        indexes = [
+            models.Index(fields=['company'], name='idx_report_company'),
+            models.Index(fields=['created_by'], name='idx_report_creator'),
+            models.Index(fields=['next_run_date'], name='idx_report_next_run'),
+        ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(CompanyUser, on_delete=models.PROTECT)
+    
+    # Report Configuration
+    report_name = models.CharField(max_length=255)
+    report_description = models.TextField(blank=True, null=True)
+    report_type = models.CharField(max_length=50, choices=REPORT_TYPE_CHOICES)
+    
+    # Report Parameters
+    filters = models.JSONField(blank=True, null=True)  # Date ranges, partners, document types
+    grouping = models.JSONField(blank=True, null=True)  # How to group the data
+    metrics = models.JSONField(blank=True, null=True)  # What metrics to include
+    
+    # Scheduling
+    is_scheduled = models.BooleanField(default=False)
+    schedule_frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, blank=True, null=True)
+    next_run_date = models.DateTimeField(blank=True, null=True)
+    
+    # Report Settings
+    output_format = models.CharField(max_length=20, choices=OUTPUT_FORMAT_CHOICES, default='JSON')
+    recipients = models.JSONField(default=list)  # Email addresses for automated reports
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.report_name} - {self.company.name}"
