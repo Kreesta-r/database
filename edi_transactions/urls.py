@@ -48,8 +48,8 @@ urlpatterns = [
     # ==============================
     # REPORTS (HTML only)
     # ==============================
-    path("reports/", views.report_list, name="report_list"),
-    path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
+    # path("reports/", views.report_list, name="report_list"),
+    # path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
 
     # ==============================
     # SYSTEM LOGS
