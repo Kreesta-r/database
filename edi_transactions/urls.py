@@ -20,7 +20,6 @@ urlpatterns = [
     # ==============================
     path("transactions/", views.transaction_list, name="transaction_list"),
     path("transactions/<int:transaction_id>/", views.transaction_detail, name="transaction_detail"),
-    path("transactions/<int:transaction_id>/json/", views.transaction_detail_json, name="transaction_detail_json"),
 
     # ==============================
     # TRADING PARTNERS
@@ -59,18 +58,14 @@ urlpatterns = [
     path("payments/<int:payment_id>/delete/", views.payment_delete, name="payment_delete"),
 
     # ==============================
-    # REPORTS & ANALYTICS
+    # REPORTS (HTML only)
     # ==============================
     path("reports/", views.report_list, name="report_list"),
     path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
-    path("reports/custom/", views.custom_report_json, name="custom_report_json"),
-    path("analytics/daily/", views.daily_analytics_json, name="daily_analytics_json"),
-    path("analytics/monthly/", views.monthly_summary_json, name="monthly_summary_json"),
 
     # ==============================
     # SYSTEM LOGS
     # ==============================
     path("logs/scbn/", views.scbn_log_list, name="scbn_log_list"),
     path("logs/workflow/", views.workflow_list, name="workflow_list"),
-    path("logs/errors/", views.error_list, name="error_list"),
 ]
