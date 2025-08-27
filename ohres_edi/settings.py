@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-yr&3!(n$44^w$ku352p(*#uv31263^)q@5kjp1-)$$83p%!@jo
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 DATABASES = {
     'default': {
